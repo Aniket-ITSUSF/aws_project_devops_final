@@ -7,6 +7,11 @@ on:
     paths:
       - 'services/**'
 
+  workflow_dispatch:
+    inputs:
+      service:
+        description: 'Optional: name of service to build/test (e.g. red-service)'
+        required: false
 jobs:
   test:
     name: Test Changed Service
