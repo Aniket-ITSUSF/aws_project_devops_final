@@ -2,12 +2,12 @@ name: UAT Pipeline
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened]
+    types: [ opened, synchronize, reopened ]
     branches: [ main ]
 
 jobs:
   test:
-    name: UAT -> Install & Test All Services
+    name: UAT → Install & Test All Services
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -21,20 +21,20 @@ jobs:
       - name: Install & Test All Services
         run: |
           for svc in services/*; do
-            cd $svc
-            npm install
-            npm test
-            cd ..
+            (
+              cd "$svc"
+              npm install
+              npm test
+            )
           done
 
   build-and-push:
-    name: UAT-> Build & Push UAT Images
+    name: UAT → Build & Push UAT Images
     needs: test
     runs-on: ubuntu-latest
     env:
-      AWS_REGION:      ${{ secrets.AWS_REGION }}
-      AWS_ACCOUNT_ID:  ${{ secrets.AWS_ACCOUNT_ID }}
-
+      AWS_REGION:     ${{ secrets.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -50,7 +50,8 @@ jobs:
       - name: Login to ECR
         run: |
           aws ecr get-login-password --region $AWS_REGION \
-            | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+            | docker login --username AWS \
+                --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
       - name: Build & Push UAT Images
         run: |
@@ -64,8 +65,8 @@ jobs:
         run: |
           aws eks update-kubeconfig --name color-eks --region $AWS_REGION
           for svc in red-service blue-service green-service; do
-            helm upgrade --install $svc infra/manifests/helm-charts/$svc \
+            helm upgrade --install "$svc" infra/manifests/helm-charts/"$svc" \
               --namespace uat \
-              -f infra/manifests/helm-charts/$svc/values-uat.yaml \
+              -f infra/manifests/helm-charts/"$svc"/values-uat.yaml \
               --set image.tag=uat
           done
