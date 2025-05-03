@@ -12,7 +12,7 @@ app.get('/color', async (req, res) => {
     res.json({ color });
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: 'DB error' });
+    res.status(500).json({ error: 'DB error fatal fatal' });
   }
 });
 
