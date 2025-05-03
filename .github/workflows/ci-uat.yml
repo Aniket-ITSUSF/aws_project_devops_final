@@ -7,7 +7,7 @@ on:
 
 jobs:
   test:
-    name: UAT: Install & Test All Services
+    name: UAT -> Install & Test All Services
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -28,7 +28,7 @@ jobs:
           done
 
   build-and-push:
-    name: UAT: Build & Push UAT Images
+    name: UAT-> Build & Push UAT Images
     needs: test
     runs-on: ubuntu-latest
     env:
