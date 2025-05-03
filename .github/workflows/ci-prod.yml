@@ -3,13 +3,15 @@ name: Prod Release & Push
 on:
   push:
     branches: [ main ]
+  # Optional: allow manual runs
+  workflow_dispatch:
 
 jobs:
   release:
     name: Semantic Release
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.release.outputs.nextRelease.version }}
+      version: ${{ steps.semantic.outputs.nextRelease.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -19,8 +21,8 @@ jobs:
         with:
           node-version: 18
 
-      - name: Run semantic-release
-        id: release
+      - name: semantic-release
+        id: semantic
         uses: cycjimmy/semantic-release-action@v2
         with:
           extra_plugins: |
@@ -35,12 +37,12 @@ jobs:
     env:
       AWS_REGION:     ${{ secrets.AWS_REGION }}
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-      IMAGE_TAG:      ${{ steps.release.outputs.version }}
+      IMAGE_TAG:      ${{ needs.release.outputs.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Configure AWS creds
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
@@ -51,15 +53,18 @@ jobs:
       - name: Login to ECR
         run: |
           aws ecr get-login-password --region $AWS_REGION \
-            | docker login --username AWS \
+            | docker login \
+                --username AWS \
                 --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
-      - name: Build & Push Prod
+      - name: Build & Push Images
         run: |
           for svc in red-service blue-service green-service; do
             REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$svc
+            # build and push prod tag
             docker build -t $REPO:$IMAGE_TAG services/$svc
             docker push $REPO:$IMAGE_TAG
+            # tag and push latest
             docker tag $REPO:$IMAGE_TAG $REPO:latest
             docker push $REPO:latest
           done
