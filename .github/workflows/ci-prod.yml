@@ -1,9 +1,14 @@
 name: Prod Release & Push
 
+
+permissions:
+  contents: write   
+  issues: write     
+
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch: 
 
 jobs:
   release:
@@ -23,7 +28,7 @@ jobs:
         with:
           node-version: 18
 
-      - name: Install root dependencies
+      - name: Install dependencies
         run: npm install
 
       - name: Run semantic-release
@@ -69,8 +74,10 @@ jobs:
         run: |
           for svc in red-service blue-service green-service; do
             REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$svc
+            # Build and push the semver tag
             docker build -t $REPO:$IMAGE_TAG services/$svc
             docker push $REPO:$IMAGE_TAG
+            # Also tag & push "latest"
             docker tag $REPO:$IMAGE_TAG $REPO:latest
             docker push $REPO:latest
           done
