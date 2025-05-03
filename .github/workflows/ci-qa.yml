@@ -1,0 +1,19 @@
+name: QA Build & Test
+on:
+  push:
+    branches: [ develop ]
+    paths: [ 'services/**' ]
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - id: changed
+        run: |
+          echo "SERVICE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} | grep '^services/' | head -n1 | cut -d/ -f2)" >> $GITHUB_OUTPUT
+      - uses: actions/setup-node@v3
+        with:
+          node-version: 18
+      - run: |
+          cd services/${{ steps.changed.outputs.SERVICE }}
+          npm ci && npm test

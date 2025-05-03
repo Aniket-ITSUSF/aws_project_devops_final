@@ -1,0 +1,10 @@
+name: Prod Deploy
+on:
+  push:
+    tags: [ 'v*.*.*' ]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: echo "Deploy to prod via helm or kubectl" 
