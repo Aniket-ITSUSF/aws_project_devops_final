@@ -2,6 +2,7 @@ name: QA Build, Test & Push
 
 on:
   push:
+    # Trigger on any branch except main
     branches-ignore: [ main ]
     paths:
       - 'services/**'
@@ -15,6 +16,9 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
+        with:
+          # Fetch enough history for git diff to work
+          fetch-depth: 0
 
       - name: Determine changed service
         id: changed
@@ -23,6 +27,7 @@ jobs:
             | grep '^services/' \
             | head -n1 \
             | cut -d'/' -f2)
+          echo "Changed service: $SERVICE"
           echo "service=$SERVICE" >> $GITHUB_OUTPUT
 
       - name: Setup Node.js
@@ -44,6 +49,7 @@ jobs:
     name: Build & Push Develop Image
     needs: test
     runs-on: ubuntu-latest
+    if: needs.test.outputs.service != ''
     env:
       AWS_REGION:     ${{ secrets.AWS_REGION }}
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
