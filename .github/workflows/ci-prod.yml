@@ -1,16 +1,74 @@
-name: Prod Deploy
+name: Prod Pipeline
 
 on:
   push:
-    tags:
-      - 'v*.*.*'
+    branches: [ main ]
 
 jobs:
-  deploy:
+  release:
+    name: Semantic Release & Versioning
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.release.outputs.nextRelease.version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Run semantic-release
+        id: release
+        uses: cycjimmy/semantic-release-action@v2
+        with:
+          extra_plugins: |
+            ["@semantic-release/commit-analyzer","@semantic-release/release-notes-generator","@semantic-release/github"]
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  deploy:
+    name: Retag UAT → Prod & Deploy to Prod
+    needs: release
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION:     ${{ secrets.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION \
+            | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Retag UAT images to Prod & Latest
+        run: |
+          for svc in red-service blue-service green-service; do
+            REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$svc
+            docker pull $REPO:uat
+            docker tag $REPO:uat $REPO:prod
+            docker tag $REPO:uat $REPO:latest
+            docker push $REPO:prod
+            docker push $REPO:latest
+          done
+
       - name: Deploy to Prod
-        run: echo "Run your Helm or kubectl apply commands here"
+        run: |
+          aws eks update-kubeconfig --name color-eks --region $AWS_REGION
+          for svc in red-service blue-service green-service; do
+            helm upgrade --install $svc infra/manifests/helm-charts/$svc \
+              --namespace prod \
+              -f infra/manifests/helm-charts/$svc/values-prod.yaml \
+              --set image.tag=prod
+          done
