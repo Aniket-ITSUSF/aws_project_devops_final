@@ -22,7 +22,7 @@ jobs:
         run: |
           for svc in services/*; do
             cd $svc
-            npm ci
+            npm install
             npm test
             cd ../..
           done
