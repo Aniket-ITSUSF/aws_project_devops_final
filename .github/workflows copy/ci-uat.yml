@@ -1,0 +1,71 @@
+name: UAT Pipeline
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [ main ]
+
+jobs:
+  test:
+    name: UAT -> Install & Test All Services
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install & Test All Services
+        run: |
+          for svc in services/*; do
+            cd $svc
+            npm install
+            npm test
+            cd ..
+          done
+
+  build-and-push:
+    name: UAT-> Build & Push UAT Images
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION:      ${{ secrets.AWS_REGION }}
+      AWS_ACCOUNT_ID:  ${{ secrets.AWS_ACCOUNT_ID }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION \
+            | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Build & Push UAT Images
+        run: |
+          for svc in red-service blue-service green-service; do
+            REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$svc
+            docker build -t $REPO:uat services/$svc
+            docker push $REPO:uat
+          done
+
+      - name: Deploy to UAT
+        run: |
+          aws eks update-kubeconfig --name color-eks --region $AWS_REGION
+          for svc in red-service blue-service green-service; do
+            helm upgrade --install $svc infra/manifests/helm-charts/$svc \
+              --namespace uat \
+              -f infra/manifests/helm-charts/$svc/values-uat.yaml \
+              --set image.tag=uat
+          done

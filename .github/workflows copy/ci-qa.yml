@@ -1,0 +1,75 @@
+name: QA Build, Test & Push
+
+on:
+  push:
+    branches-ignore: [ main ]
+    paths:
+      - 'services/**'
+
+jobs:
+  test:
+    name: Test Changed Service
+    runs-on: ubuntu-latest
+    outputs:
+      service: ${{ steps.changed.outputs.service }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Determine changed service
+        id: changed
+        run: |
+          SERVICE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} \
+            | grep '^services/' \
+            | head -n1 \
+            | cut -d'/' -f2)
+          echo "service=$SERVICE" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18
+
+      - name: Install Dependencies
+        run: |
+          cd services/${{ steps.changed.outputs.service }}
+          npm install
+
+      - name: Run Tests
+        run: |
+          cd services/${{ steps.changed.outputs.service }}
+          npm test
+
+  build-and-push:
+    name: Build & Push Develop Image
+    needs: test
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION:     ${{ secrets.AWS_REGION }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region:            ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region $AWS_REGION \
+            | docker login \
+                --username AWS \
+                --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+
+      - name: Build & Push Image
+        run: |
+          SERVICE=${{ needs.test.outputs.service }}
+          REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$SERVICE
+          TAG=develop
+          docker build -t $REPO:$TAG services/$SERVICE
+          docker push $REPO:$TAG
