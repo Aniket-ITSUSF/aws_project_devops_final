@@ -28,16 +28,23 @@ jobs:
             )
           done
 
-  build-and-push:
-    name: UAT → Build & Push UAT Images
+  build-and-push-and-deploy:
+    name: UAT → Build, Push & Deploy
     needs: test
     runs-on: ubuntu-latest
     env:
       AWS_REGION:     ${{ secrets.AWS_REGION }}
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
     steps:
-      - name: Checkout code
+      - name: Checkout microservices code
         uses: actions/checkout@v3
+
+      - name: Checkout infra repo
+        uses: actions/checkout@v3
+        with:
+          repository: Aniket-ITSUSF/final_devops_infra
+          token:      ${{ secrets.GITHUB_TOKEN }}
+          path:       infra
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -61,7 +68,7 @@ jobs:
             docker push $REPO:uat
           done
 
-      - name: Deploy to UAT
+      - name: Deploy to UAT via Helm
         run: |
           aws eks update-kubeconfig --name color-eks --region $AWS_REGION
           for svc in red-service blue-service green-service; do

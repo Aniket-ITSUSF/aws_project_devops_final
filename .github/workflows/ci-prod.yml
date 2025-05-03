@@ -11,7 +11,7 @@ jobs:
     outputs:
       version: ${{ steps.release.outputs.nextRelease.version }}
     steps:
-      - name: Checkout code
+      - name: Checkout microservices code
         uses: actions/checkout@v3
 
       - name: Setup Node.js
@@ -35,9 +35,17 @@ jobs:
     env:
       AWS_REGION:     ${{ secrets.AWS_REGION }}
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      IMAGE_TAG:      ${{ steps.release.outputs.version }}
     steps:
-      - name: Checkout code
+      - name: Checkout microservices code
         uses: actions/checkout@v3
+
+      - name: Checkout infra repo
+        uses: actions/checkout@v3
+        with:
+          repository: Aniket-ITSUSF/final_devops_infra
+          token:      ${{ secrets.GITHUB_TOKEN }}
+          path:       infra
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
@@ -50,25 +58,26 @@ jobs:
       - name: Login to ECR
         run: |
           aws ecr get-login-password --region $AWS_REGION \
-            | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+            | docker login --username AWS \
+                --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
-      - name: Retag UAT images to Prod & Latest
+      - name: Retag & Push Prod Images
         run: |
           for svc in red-service blue-service green-service; do
             REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$svc
             docker pull $REPO:uat
-            docker tag $REPO:uat $REPO:prod
-            docker tag $REPO:uat $REPO:latest
+            docker tag  $REPO:uat $REPO:prod
+            docker tag  $REPO:uat $REPO:latest
             docker push $REPO:prod
             docker push $REPO:latest
           done
 
-      - name: Deploy to Prod
+      - name: Deploy to Prod via Helm
         run: |
           aws eks update-kubeconfig --name color-eks --region $AWS_REGION
           for svc in red-service blue-service green-service; do
-            helm upgrade --install $svc infra/manifests/helm-charts/$svc \
+            helm upgrade --install "$svc" infra/manifests/helm-charts/"$svc" \
               --namespace prod \
-              -f infra/manifests/helm-charts/$svc/values-prod.yaml \
+              -f infra/manifests/helm-charts/"$svc"/values-prod.yaml \
               --set image.tag=prod
           done
