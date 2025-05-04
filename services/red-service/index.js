@@ -2,17 +2,21 @@ const express = require('express');
 const pool = require('./db');
 const app = express();
 const port = process.env.PORT || 3000;
+const color = process.env.COLOR || 'unknown';
 
 app.get('/health', (req, res) => res.send('OK'));
 
 app.get('/color', async (req, res) => {
-  const color = 'red';
   try {
-    await pool.query('INSERT INTO hits (service, timestamp) VALUES (?, ?)', [color, new Date()]);
+    // Use '?' placeholders so mysql2/mysql driver will escape correctly
+    await pool.query(
+        'INSERT INTO hits (service, timestamp) VALUES (?, ?)',
+        [color, new Date()]
+    );
     res.json({ color });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'DB error fatal red' });
+    console.error('DB error inserting hit:', err);
+    res.status(500).json({ error: `DB error in ${color} service` });
   }
 });
 
