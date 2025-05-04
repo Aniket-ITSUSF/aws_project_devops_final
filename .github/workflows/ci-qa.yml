@@ -2,11 +2,10 @@ name: QA Build, Test & Push
 
 on:
   push:
-    # Run on any branch except main
-    branches-ignore: [ main ]
+    branches:
+      - 'develop/**'
     paths:
       - 'services/**'
-
   workflow_dispatch:
     inputs:
       service:
@@ -40,7 +39,7 @@ jobs:
 
       - name: Install & Test
         run: |
-          cd services/${{ needs.test.outputs.service }}
+          cd services/${{ steps.changed.outputs.service }}
           npm install
           npm test
 
