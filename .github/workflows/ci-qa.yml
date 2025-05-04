@@ -29,8 +29,15 @@ jobs:
       - name: Determine changed services and files
         id: changed
         run: |
-          # Get all changes
-          CHANGES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          # Handle case where this is the first commit on the branch
+          if [ "${{ github.event.before }}" = "0000000000000000000000000000000000000000" ]; then
+            # For new branches, get changes compared to main branch
+            git fetch origin main
+            CHANGES=$(git diff --name-only origin/main ${{ github.sha }})
+          else
+            # Normal case - get changes since last commit
+            CHANGES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          fi
           
           # Find services with changes
           SERVICES=$(echo "$CHANGES" | grep '^services/' | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))')
