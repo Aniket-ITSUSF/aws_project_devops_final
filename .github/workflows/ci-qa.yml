@@ -2,10 +2,10 @@ name: QA Build, Test & Push
 
 on:
   push:
-    # Run on any branch except main
-    branches-ignore: [ main ]
-    paths:
-      - 'services/**'
+    branches:
+      - 'develop/**'
+      - 'feature/**'
+      # Add any other feature branch patterns you might use
 
   workflow_dispatch:
     inputs:
@@ -14,40 +14,81 @@ on:
         required: false
 jobs:
   test:
-    name: Test Changed Service
+    name: Test Services
     runs-on: ubuntu-latest
     outputs:
-      service: ${{ steps.changed.outputs.service }}
+      services: ${{ steps.changed.outputs.services }}
+      all_services: ${{ steps.changed.outputs.all_services }}
+      run_all: ${{ steps.changed.outputs.run_all }}
     steps:
       - name: Checkout code (full history)
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
 
-      - name: Determine changed service
+      - name: Determine changed services and files
         id: changed
         run: |
-          SERVICE=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }} \
-            | grep '^services/' \
-            | head -n1 \
-            | cut -d'/' -f2)
-          echo "service=$SERVICE" >> $GITHUB_OUTPUT
+          # Get all changes
+          CHANGES=$(git diff --name-only ${{ github.event.before }} ${{ github.sha }})
+          
+          # Find services with changes
+          SERVICES=$(echo "$CHANGES" | grep '^services/' | cut -d'/' -f2 | sort -u | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "services=$SERVICES" >> $GITHUB_OUTPUT
+          
+          # Find all service directories
+          ALL_SERVICES=$(find services -maxdepth 1 -mindepth 1 -type d | cut -d'/' -f2 | jq -R -s -c 'split("\n") | map(select(length > 0))')
+          echo "all_services=$ALL_SERVICES" >> $GITHUB_OUTPUT
+          
+          # Check if there are changes outside of services directory
+          NON_SERVICE_CHANGES=$(echo "$CHANGES" | grep -v '^services/' | wc -l)
+          if [ $NON_SERVICE_CHANGES -gt 0 ]; then
+            echo "run_all=true" >> $GITHUB_OUTPUT
+          else
+            echo "run_all=false" >> $GITHUB_OUTPUT
+          fi
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: 18
 
-      - name: Install & Test
+      - name: Test Changed Services
+        if: steps.changed.outputs.run_all == 'false'
         run: |
-          cd services/${{ needs.test.outputs.service }}
-          npm install
-          npm test
+          # Parse services JSON to array
+          SERVICES_JSON='${{ steps.changed.outputs.services }}'
+          readarray -t SERVICES_ARRAY < <(echo "$SERVICES_JSON" | jq -r '.[]')
+          
+          for SERVICE in "${SERVICES_ARRAY[@]}"; do
+            echo "Testing service: $SERVICE"
+            cd services/$SERVICE
+            npm install
+            npm test
+            # Return to project root for next iteration
+            cd ../../
+          done
+
+      - name: Test All Services
+        if: steps.changed.outputs.run_all == 'true'
+        run: |
+          # Parse all services JSON to array
+          ALL_SERVICES_JSON='${{ steps.changed.outputs.all_services }}'
+          readarray -t ALL_SERVICES_ARRAY < <(echo "$ALL_SERVICES_JSON" | jq -r '.[]')
+          
+          for SERVICE in "${ALL_SERVICES_ARRAY[@]}"; do
+            echo "Testing service: $SERVICE"
+            cd services/$SERVICE
+            npm install
+            npm test
+            # Return to project root for next iteration
+            cd ../../
+          done
 
   build-and-push:
-    name: Build & Push :develop Image
+    name: Build & Push :develop Images
     needs: test
-    if: needs.test.outputs.service != ''
+    if: needs.test.outputs.services != '[]' || needs.test.outputs.run_all == 'true'
     runs-on: ubuntu-latest
     env:
       AWS_REGION:     ${{ secrets.AWS_REGION }}
@@ -70,9 +111,30 @@ jobs:
             | docker login --username AWS \
                 --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
-      - name: Build & Push develop
+      - name: Build & Push Changed Services
+        if: needs.test.outputs.run_all == 'false'
         run: |
-          SERVICE=${{ needs.test.outputs.service }}
-          REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$SERVICE
-          docker build -t $REPO:develop services/$SERVICE
-          docker push $REPO:develop
+          # Parse services JSON to array
+          SERVICES_JSON='${{ needs.test.outputs.services }}'
+          readarray -t SERVICES_ARRAY < <(echo "$SERVICES_JSON" | jq -r '.[]')
+          
+          for SERVICE in "${SERVICES_ARRAY[@]}"; do
+            echo "Building and pushing service: $SERVICE"
+            REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$SERVICE
+            docker build -t $REPO:develop services/$SERVICE
+            docker push $REPO:develop
+          done
+
+      - name: Build & Push All Services
+        if: needs.test.outputs.run_all == 'true'
+        run: |
+          # Parse all services JSON to array
+          ALL_SERVICES_JSON='${{ needs.test.outputs.all_services }}'
+          readarray -t ALL_SERVICES_ARRAY < <(echo "$ALL_SERVICES_JSON" | jq -r '.[]')
+          
+          for SERVICE in "${ALL_SERVICES_ARRAY[@]}"; do
+            echo "Building and pushing service: $SERVICE"
+            REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$SERVICE
+            docker build -t $REPO:develop services/$SERVICE
+            docker push $REPO:develop
+          done
