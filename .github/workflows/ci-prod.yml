@@ -126,9 +126,10 @@ jobs:
       - name: Login to ArgoCD (core mode)
         run: |
           argocd login ${{ secrets.ARGOCD_SERVER }} \
-            --core \
+            --insecure \
             --username ${{ secrets.ARGOCD_USERNAME }} \
             --password ${{ secrets.ARGOCD_PASSWORD }} \
+            # -- core \
             # --grpc-web can be added if you need it :contentReference[oaicite:4]{index=4}
 
       # 4) Sync your preprod (green) apps
