@@ -118,6 +118,8 @@ jobs:
             --region ${{ secrets.AWS_REGION }} \
             --name   ${{ secrets.EKS_CLUSTER_NAME }}
 
+          kubectl config set-context prod --namespace=argocd
+
       # 3) Log in via 'core' (uses kubectl under the hood)
       - name: Login to ArgoCD (core mode)
         run: |
