@@ -115,7 +115,8 @@ jobs:
             https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
           chmod +x /usr/local/bin/argocd
 
-            - name: Port-forward, login & sync ArgoCD apps
+      - name: Port-forward, login & sync ArgoCD apps
+      
         env:
           TOKEN: ${{ secrets.ARGOCD_TOKEN }}
           
