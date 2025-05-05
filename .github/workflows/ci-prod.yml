@@ -87,76 +87,23 @@ jobs:
           done
 
   # ─────────────── 3) Deploy to Preprod (green) ───────────────
-    # ─────────────── 3) Deploy to Preprod (green) ───────────────
   deploy-preprod:
     name: 🟢 Deploy to Preprod (green)
     needs: build-and-push
     runs-on: ubuntu-latest
     environment: preprod
     steps:
-      - name: Checkout repo
-        uses: actions/checkout@v3
+      - name: ArgoCD login
+        run: argocd login ${{ secrets.ARGOCD_SERVER }} \
+             --username admin \
+             --password ${{ secrets.ARGOCD_PWD }} \
+             --insecure
 
-      - name: Configure AWS creds & update kubeconfig
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-region:            ${{ secrets.AWS_REGION }}
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-      - run: |
-          aws eks update-kubeconfig \
-            --region ${{ secrets.AWS_REGION }} \
-            --name   ${{ secrets.EKS_CLUSTER_NAME }}
-
-      - name: Install ArgoCD CLI
+      - name: Sync all prod-green apps
         run: |
-          curl -sSL -o /usr/local/bin/argocd \
-            https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
-          chmod +x /usr/local/bin/argocd
-
-      - name: Port-forward, login & sync ArgoCD apps
-      
-        env:
-          TOKEN: ${{ secrets.ARGOCD_TOKEN }}
-          
-        run: |
-          # start port-forward in the background
-          kubectl -n argocd port-forward svc/argocd-server 8080:443 &
-          PF_PID=$!
-
-          # wait up to 30s for 127.0.0.1:8080 to open
-          for i in {1..30}; do
-            if echo > /dev/tcp/127.0.0.1/8080 2>/dev/null; then
-              echo "Port-forward ready"
-              break
-            fi
-            echo "Waiting for port-forward… ($i)"
-            sleep 1
-          done
-
-          # if it never opened, bail
-          if ! echo > /dev/tcp/127.0.0.1/8080 2>/dev/null; then
-            echo "ERROR: Port-forward failed to start" >&2
-            kill $PF_PID || true
-            exit 1
-          fi
-
-          ARGOCD_SERVER=127.0.0.1:8080
-
-          # login and sync
-          argocd login $ARGOCD_SERVER \
-            --username ci-bot \
-            --auth-token $TOKEN \
-            --insecure
           argocd app sync blue-service-prod-green
-          argocd app sync green-service-prod-green
           argocd app sync red-service-prod-green
-
-          # cleanup background
-          kill $PF_PID
-
-
+          argocd app sync green-service-prod-green
 
   # ─────────────── 4) Smoke-test Preprod ───────────────
   smoke-test:
