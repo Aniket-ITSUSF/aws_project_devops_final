@@ -90,26 +90,49 @@ jobs:
   # ─────────────── 3) Deploy to Preprod (green) ───────────────
   deploy-preprod:
     name: 🟢 Deploy to Preprod (green)
-    needs: build-and-push
     runs-on: ubuntu-latest
+    needs: build-and-push
     environment: preprod
-    steps:
-    - name: Install Argo CD CLI
-      run: |
-            curl -sSL https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 \
-              -o /usr/local/bin/argocd && chmod +x /usr/local/bin/argocd
 
-    - name: Login & Sync via CLI
-      uses: opsverseio/argocd-sync-action@0.2.0
-      with:
-        server: ${{ secrets.ARGOCD_SERVER }}
-        username: ${{ secrets.ARGOCD_USERNAME }}
-        password: ${{ secrets.ARGOCD_PWD }}
-        apps: |
-          blue-service-prod-green
-          red-service-prod-green
-          green-service-prod-green
-        insecure: true
+    steps:
+      # 1) Install kubectl & ArgoCD CLI
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 \
+            -o /usr/local/bin/argocd
+          chmod +x /usr/local/bin/argocd
+
+      # 2) Configure AWS & kubeconfig for EKS
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region:            ${{ secrets.AWS_REGION }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name   ${{ secrets.EKS_CLUSTER_NAME }}
+
+      # 3) Log in via 'core' (uses kubectl under the hood)
+      - name: Login to ArgoCD (core mode)
+        run: |
+          argocd login ${{ secrets.ARGOCD_SERVER }} \
+            --core \
+            --username ${{ secrets.ARGOCD_USERNAME }} \
+            --password ${{ secrets.ARGOCD_PASSWORD }} \
+            # --grpc-web can be added if you need it :contentReference[oaicite:4]{index=4}
+
+      # 4) Sync your preprod (green) apps
+      - name: Sync ArgoCD Apps (prod-green)
+        run: |
+          argocd app sync blue-service-prod-green
+          argocd app sync green-service-prod-green
+          argocd app sync red-service-prod-green
 
 
   # ─────────────── 4) Smoke-test Preprod ───────────────
