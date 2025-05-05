@@ -102,12 +102,13 @@ jobs:
           sudo mv argocd-linux-amd64 /usr/local/bin/argocd
           
       - name: ArgoCD login
-        run: argocd login ${{ secrets.ARGOCD_SERVER }} \
+        run: |
+             kubectl config set-context --current --namespace=argocd
+             
+             argocd login ${{ secrets.ARGOCD_SERVER }} \
+             --core \
              --username admin \
-             --password ${{ secrets.ARGOCD_PWD }} \
-             --insecure \
-             --grpc-web \
-             --port-forward
+             --password ${{ secrets.ARGOCD_PWD }} 
 
       - name: Sync all prod-green apps
         run: |
