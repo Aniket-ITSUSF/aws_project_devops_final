@@ -1,23 +1,25 @@
-name: Prod Release & Push
+name: Prod Release & Blue/Green Deployment
 
-
-permissions:
-  contents: write   
-  issues: write     
-
+# 1. Trigger on pushes to main or manual dispatch
 on:
   push:
     branches: [ main ]
-  workflow_dispatch: 
+  workflow_dispatch:
+
+permissions:
+  contents: write       # for semantic-release to push tags & changelog
+  id-token: write       # if you ever integrate OIDC
+  actions: read
 
 jobs:
+  # ─────────────── 1) Semantic Release ───────────────
   release:
-    name: Semantic Release
+    name: 🚀 Semantic Release
     runs-on: ubuntu-latest
     outputs:
-      version: ${{ steps.get-tag.outputs.version }}
+      version: ${{ steps.get-version.outputs.version }}
     steps:
-      - name: Checkout code (with history & tags)
+      - name: Checkout repo (full history & tags)
         uses: actions/checkout@v3
         with:
           fetch-depth: 0
@@ -32,18 +34,20 @@ jobs:
         run: npm install
 
       - name: Run semantic-release
+        id: semantic
         run: npx semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Get released version
-        id: get-tag
+        id: get-version
         run: |
           VERSION=$(git describe --tags --abbrev=0)
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
+  # ─────────────── 2) Build & Push Docker ───────────────
   build-and-push:
-    name: Build & Push :prod & :latest
+    name: 🔧 Build & Push Docker Images
     needs: release
     runs-on: ubuntu-latest
     env:
@@ -51,33 +55,93 @@ jobs:
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
       IMAGE_TAG:      ${{ needs.release.outputs.version }}
     steps:
-      - name: Checkout code (with history & tags)
+      - name: Checkout code
         uses: actions/checkout@v3
-        with:
-          fetch-depth: 0
 
-      - name: Configure AWS credentials
+      - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
+          aws-region:            ${{ secrets.AWS_REGION }}
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region:            ${{ secrets.AWS_REGION }}
 
       - name: Login to ECR
         run: |
-          aws ecr get-login-password --region $AWS_REGION \
-            | docker login --username AWS \
-                --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
+          aws ecr get-login-password \
+            | docker login --username AWS --password-stdin $AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com
 
-      - name: Build & Push Images
+      - name: Build & Push Tags
         run: |
-          for svc in red-service blue-service green-service; do
+          for svc in red-service green-service blue-service; do
             REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$svc
-            # Build and push the semver tag
+            # push semver tag
             docker build -t $REPO:$IMAGE_TAG services/$svc
             docker push $REPO:$IMAGE_TAG
-            # Also tag & push "latest"
-            docker tag $REPO:$IMAGE_TAG $REPO:latest
+            # push "prod" alias
+            docker tag  $REPO:$IMAGE_TAG $REPO:prod
+            docker push $REPO:prod
+            # push "latest"
+            docker tag  $REPO:$IMAGE_TAG $REPO:latest
             docker push $REPO:latest
           done
+
+  # ─────────────── 3) Deploy to Preprod (green) ───────────────
+  deploy-preprod:
+    name: 🟢 Deploy to Preprod (green)
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    environment: preprod          # ← protected environment for manual approval
+    steps:
+      - name: Sync ArgoCD Apps (prod-green)
+        run: |
+          argocd app sync blue-service-prod-green
+          argocd app sync green-service-prod-green
+          argocd app sync red-service-prod-green
+
+  # ─────────────── 4) Smoke-test Preprod ───────────────
+  smoke-test:
+    name: 🔍 Smoke-test Preprod
+    needs: deploy-preprod
+    runs-on: ubuntu-latest
+    steps:
+      - name: Test health endpoint
+        run: |
+          curl -f https://preprod.dev-ops-project.com/blue/health
+          curl -f https://preprod.dev-ops-project.com/green/health
+          curl -f https://preprod.dev-ops-project.com/red/health
+
+  # ─────────────── 5) Promote to Prod (blue) ───────────────
+  promote-prod:
+    name: 🔵 Promote Preprod → Prod (blue)
+    needs: smoke-test
+    runs-on: ubuntu-latest
+    environment: production      # ← protected environment for final approval
+    steps:
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region:            ${{ secrets.AWS_REGION }}
+          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+
+      - name: Flip Route 53 DNS to Prod-Blue ALB
+        run: |
+          aws route53 change-resource-record-sets \
+            --hosted-zone-id ${{ secrets.HOSTED_ZONE_ID }} \
+            --change-batch '{
+              "Comment":"Blue/Green switch to blue",
+              "Changes":[{
+                "Action":"UPSERT",
+                "ResourceRecordSet":{
+                  "Name":"dev-ops-project.com",
+                  "Type":"A",
+                  "AliasTarget":{
+                    "HostedZoneId":"'"${{ secrets.BLUE_ALB_ZONE_ID }}"'",
+                    "DNSName":"'"${{ secrets.BLUE_ALB_DNS }}"'",
+                    "EvaluateTargetHealth":false
+                  }
+                }
+              }]
+            }'
