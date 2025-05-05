@@ -115,27 +115,46 @@ jobs:
             https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
           chmod +x /usr/local/bin/argocd
 
-      - name: Port-forward, login & sync ArgoCD apps
+            - name: Port-forward, login & sync ArgoCD apps
         env:
           TOKEN: ${{ secrets.ARGOCD_TOKEN }}
+          
         run: |
-          # background port-forward to map 8080→443
-          nohup kubectl -n argocd port-forward svc/argocd-server 8080:443 >/dev/null 2>&1 &
-          sleep 10
+          # start port-forward in the background
+          kubectl -n argocd port-forward svc/argocd-server 8080:443 &
+          PF_PID=$!
 
-          # point at IPv4 localhost (avoids IPv6 ::1)
+          # wait up to 30s for 127.0.0.1:8080 to open
+          for i in {1..30}; do
+            if echo > /dev/tcp/127.0.0.1/8080 2>/dev/null; then
+              echo "Port-forward ready"
+              break
+            fi
+            echo "Waiting for port-forward… ($i)"
+            sleep 1
+          done
+
+          # if it never opened, bail
+          if ! echo > /dev/tcp/127.0.0.1/8080 2>/dev/null; then
+            echo "ERROR: Port-forward failed to start" >&2
+            kill $PF_PID || true
+            exit 1
+          fi
+
           ARGOCD_SERVER=127.0.0.1:8080
 
-          # authenticate non-interactively
+          # login and sync
           argocd login $ARGOCD_SERVER \
             --username ci-bot \
             --auth-token $TOKEN \
             --insecure
-
-          # now sync your apps
           argocd app sync blue-service-prod-green
           argocd app sync green-service-prod-green
           argocd app sync red-service-prod-green
+
+          # cleanup background
+          kill $PF_PID
+
 
 
   # ─────────────── 4) Smoke-test Preprod ───────────────
