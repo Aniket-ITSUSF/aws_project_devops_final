@@ -63,5 +63,4 @@ if (require.main === module) {
       console.log(`${color} service listening on port ${port}`)
   );
 }
-
 module.exports = app;
