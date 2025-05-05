@@ -98,7 +98,7 @@ jobs:
     if: needs.test.outputs.services != '[]' || needs.test.outputs.run_all == 'true'
     runs-on: ubuntu-latest
     env:
-      AWS_REGION:     ${{ secrets.AWS_REGION }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
       AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
     steps:
       - name: Checkout code
@@ -107,10 +107,10 @@ jobs:
       - name: Configure AWS creds
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-          aws-region:            ${{ secrets.AWS_REGION }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       - name: Login to ECR
         run: |
@@ -144,4 +144,50 @@ jobs:
             REPO=$AWS_ACCOUNT_ID.dkr.ecr.$AWS_REGION.amazonaws.com/$SERVICE
             docker build -t $REPO:develop services/$SERVICE
             docker push $REPO:develop
+          done
+  deploy-dev:
+    name: 🟢 Deploy to dev
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/heads/feature/')
+    needs: build-and-push
+
+    steps:
+      # 1) Install kubectl & ArgoCD CLI
+      - name: Install kubectl
+        uses: azure/setup-kubectl@v3
+      - name: Configure AWS
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
+      - name: Update kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name   ${{ secrets.EKS_CLUSTER_NAME }}
+
+          kubectl config set-context dev --namespace=argocd
+
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 \
+            -o /usr/local/bin/argocd
+          chmod +x /usr/local/bin/argocd
+
+      - name: Login to ArgoCD (core mode)
+        run: |
+          argocd login ${{ secrets.ARGOCD_SERVER }} \
+            --insecure \
+            --username ${{ secrets.ARGOCD_USERNAME }} \
+            --password ${{ secrets.ARGOCD_PASSWORD }} 
+
+      - name: Sync ArgoCD Apps
+        run: |
+          BRANCH=${GITHUB_REF#refs/heads/}
+          for APP in green-service-dev blue-service-dev red-service-dev; do
+          echo "Pointing $APP at branch $BRANCH"
+          argocd app set $APP --revision $BRANCH
+          argocd app sync $APP
           done
