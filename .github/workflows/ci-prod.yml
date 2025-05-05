@@ -98,13 +98,6 @@ jobs:
       # 1) Install kubectl & ArgoCD CLI
       - name: Install kubectl
         uses: azure/setup-kubectl@v3
-      - name: Install ArgoCD CLI
-        run: |
-          curl -sSL https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 \
-            -o /usr/local/bin/argocd
-          chmod +x /usr/local/bin/argocd
-
-      # 2) Configure AWS & kubeconfig for EKS
       - name: Configure AWS
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -119,6 +112,15 @@ jobs:
             --name   ${{ secrets.EKS_CLUSTER_NAME }}
 
           kubectl config set-context dev --namespace=argocd
+          
+      - name: Install ArgoCD CLI
+        run: |
+          curl -sSL https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 \
+            -o /usr/local/bin/argocd
+          chmod +x /usr/local/bin/argocd
+
+      # 2) Configure AWS & kubeconfig for EKS
+      
 
       # 3) Log in via 'core' (uses kubectl under the hood)
       - name: Login to ArgoCD (core mode)
