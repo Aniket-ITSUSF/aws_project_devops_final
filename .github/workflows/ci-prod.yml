@@ -94,17 +94,23 @@ jobs:
     runs-on: ubuntu-latest
     environment: preprod
     steps:
-     - name: Sync ArgoCD Apps (prod-green) via Action
-       uses: argoproj-labs/argocd-actions@v1
-       with:
-        server: ${{ secrets.ARGOCD_SERVER }}     # e.g. argocd.dev-ops-project.com
-        username: ${{ secrets.ARGOCD_USERNAME }} # your ArgoCD admin/user
-        password: ${{ secrets.ARGOCD_PWD }}      # the password for that user
-        command: |
-          app sync blue-service-prod-green
-          app sync green-service-prod-green
-          app sync red-service-prod-green
+    - name: Install Argo CD CLI
+      run: |
+            curl -sSL https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64 \
+              -o /usr/local/bin/argocd && chmod +x /usr/local/bin/argocd
+
+    - name: Login & Sync via CLI
+      uses: opsverseio/argocd-sync-action@0.2.0
+      with:
+        server: ${{ secrets.ARGOCD_SERVER }}
+        username: ${{ secrets.ARGOCD_USERNAME }}
+        password: ${{ secrets.ARGOCD_PWD }}
+        apps: |
+          blue-service-prod-green
+          red-service-prod-green
+          green-service-prod-green
         insecure: true
+
 
   # ─────────────── 4) Smoke-test Preprod ───────────────
   smoke-test:
