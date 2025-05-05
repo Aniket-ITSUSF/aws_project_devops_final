@@ -113,35 +113,43 @@ jobs:
 
   # ─────────────── 5) Promote to Prod (blue) ───────────────
   promote-prod:
-    name: 🔵 Promote Preprod → Prod (blue)
+    name: 🔄 Flip In-Cluster Blue/Green
     needs: smoke-test
     runs-on: ubuntu-latest
-    environment: production      # ← protected environment for final approval
+    environment: production
     steps:
-      - name: Configure AWS Credentials
+      - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-region:            ${{ secrets.AWS_REGION }}
-          aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-region: ${{ secrets.AWS_REGION }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
+          aws-session-token: ${{ secrets.AWS_SESSION_TOKEN }}
 
-      - name: Flip Route 53 DNS to Prod-Blue ALB
+      - name: Update kubeconfig for EKS
         run: |
-          aws route53 change-resource-record-sets \
-            --hosted-zone-id ${{ secrets.HOSTED_ZONE_ID }} \
-            --change-batch '{
-              "Comment":"Blue/Green switch to blue",
-              "Changes":[{
-                "Action":"UPSERT",
-                "ResourceRecordSet":{
-                  "Name":"dev-ops-project.com",
-                  "Type":"A",
-                  "AliasTarget":{
-                    "HostedZoneId":"'"${{ secrets.BLUE_ALB_ZONE_ID }}"'",
-                    "DNSName":"'"${{ secrets.BLUE_ALB_DNS }}"'",
-                    "EvaluateTargetHealth":false
-                  }
-                }
-              }]
-            }'
+          aws eks update-kubeconfig \
+            --region ${{ secrets.AWS_REGION }} \
+            --name   ${{ secrets.EKS_CLUSTER_NAME }}
+
+      - name: Flip Ingress default backend
+        shell: bash
+        env:
+          NAMESPACE: prod-blue
+          INGRESS: env-ingress
+        run: |
+          CURRENT=$(kubectl -n $NAMESPACE get ingress $INGRESS \
+            -o jsonpath='{.spec.rules[0].http.paths[0].backend.service.name}')
+          if [[ "$CURRENT" == "blue-service" ]]; then
+            NEXT="green-service"
+          else
+            NEXT="blue-service"
+          fi
+          echo "Switching Ingress $INGRESS in $NAMESPACE → $NEXT"
+          kubectl patch ingress $INGRESS -n $NAMESPACE \
+            --type=json \
+            -p '[{
+              "op":"replace",
+              "path":"/spec/rules/0/http/paths/0/backend/service/name",
+              "value":"'"$NEXT"'"
+            }]'
