@@ -3,9 +3,9 @@ name: QA Build, Test & Push
 on:
   push:
     branches:
-      - 'develop/**'
+      - dev
+      - 'dev/**'
       - 'feature/**'
-      # Add any other feature branch patterns you might use
 
   workflow_dispatch:
     inputs:
