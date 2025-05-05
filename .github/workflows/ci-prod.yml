@@ -87,54 +87,56 @@ jobs:
           done
 
   # ─────────────── 3) Deploy to Preprod (green) ───────────────
+    # ─────────────── 3) Deploy to Preprod (green) ───────────────
   deploy-preprod:
     name: 🟢 Deploy to Preprod (green)
     needs: build-and-push
     runs-on: ubuntu-latest
-    environment: preprod          # ← protected environment for manual approval
+    environment: preprod
     steps:
       - name: Checkout repo
         uses: actions/checkout@v3
 
-      - name: Configure AWS credentials
+      - name: Configure AWS creds & update kubeconfig
         uses: aws-actions/configure-aws-credentials@v2
         with:
           aws-region:            ${{ secrets.AWS_REGION }}
           aws-access-key-id:     ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-session-token:     ${{ secrets.AWS_SESSION_TOKEN }}
-
-      - name: Update kubeconfig for EKS
-        run: |
+      - run: |
           aws eks update-kubeconfig \
             --region ${{ secrets.AWS_REGION }} \
             --name   ${{ secrets.EKS_CLUSTER_NAME }}
 
-      - name: Install Argo CD CLI
+      - name: Install ArgoCD CLI
         run: |
           curl -sSL -o /usr/local/bin/argocd \
             https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
           chmod +x /usr/local/bin/argocd
 
-      - name: Port-forward Argo CD server
-        run: |
-          kubectl -n argocd port-forward svc/argocd-server 8080:443 &
-          sleep 5
-
-      - name: Login to Argo CD
+      - name: Port-forward, login & sync ArgoCD apps
         env:
-          ARGOCD_SERVER: localhost:8080
+          TOKEN: ${{ secrets.ARGOCD_TOKEN }}
         run: |
+          # background port-forward to map 8080→443
+          nohup kubectl -n argocd port-forward svc/argocd-server 8080:443 >/dev/null 2>&1 &
+          sleep 10
+
+          # point at IPv4 localhost (avoids IPv6 ::1)
+          ARGOCD_SERVER=127.0.0.1:8080
+
+          # authenticate non-interactively
           argocd login $ARGOCD_SERVER \
             --username ci-bot \
-            --auth-token ${{ secrets.ARGOCD_TOKEN }} \
+            --auth-token $TOKEN \
             --insecure
 
-      - name: Sync ArgoCD Apps (prod-green)
-        run: |
+          # now sync your apps
           argocd app sync blue-service-prod-green
           argocd app sync green-service-prod-green
           argocd app sync red-service-prod-green
+
 
   # ─────────────── 4) Smoke-test Preprod ───────────────
   smoke-test:
