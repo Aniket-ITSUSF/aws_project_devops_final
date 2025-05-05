@@ -51,7 +51,7 @@ app.get('/', (req, res) => {
       <div class="container">
         <h1>Welcome to the Greenery Image Service</h1>
         <p>Here's your requested image:</p>
-        <img src="https://preview.redd.it/beautiful-green-landscape-scenery-v0-59x72tt66wpa1.jpg?width=1080&crop=smart&auto=webp&s=02b7f78e8d8c6b37b3b0f588189fc4c7dee469fa" alt="Sample Image">
+        <img src="https://media.newyorker.com/photos/5a95a5b13d9089123c9fdb7e/master/w_2240,c_limit/Petrusich-Dont-Mess-with-the-Birds.jpg" alt="Sample Image">
       </div>
     </body>
     </html>
