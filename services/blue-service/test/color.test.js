@@ -1,3 +1,4 @@
+process.env.COLOR = 'blue';
 const request = require('supertest');
 const app = require('../index');
 
