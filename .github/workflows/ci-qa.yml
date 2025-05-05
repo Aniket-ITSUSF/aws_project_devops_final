@@ -185,6 +185,8 @@ jobs:
 
       - name: Sync ArgoCD Apps
         run: |
+          argocd repo update https://github.com/Aniket-ITSUSF/final_devops_infra.git --refresh
+          
           BRANCH=${GITHUB_REF#refs/heads/}
           for APP in green-service-dev blue-service-dev red-service-dev; do
           echo "Pointing $APP at branch $BRANCH"
